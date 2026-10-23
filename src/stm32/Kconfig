@@ -292,6 +292,16 @@ config STM32F103GD_DISABLE_SWD
         and PA14 pins from being available. Selecting this option
         disables SWD at startup and thus makes these pins available.
 
+config STM32_FLASHFORGE_IFS
+    bool "Flashforge AD5X IFS board"
+    depends on MACH_N32G455 && STM32_FLASH_START_10000 && LOW_LEVEL_OPTIONS
+    default n
+    help
+        Select this when building for the IFS (filament system) board of
+        the Flashforge AD5X. Its bootloader only stays in its serial
+        update mode after the application flag page at 0x0800D000 is
+        erased, so a bootloader request erases that page and resets.
+
 config STM32_DFU_ROM_ADDRESS
     hex
     default 0 if !USB

@@ -41,7 +41,7 @@ try_request_canboot(void)
     canboot_reset(CANBOOT_REQUEST);
 }
 
-#if CONFIG_MACH_N32G455 && CONFIG_STM32_FLASH_START_10000
+#if CONFIG_MACH_N32G455 && CONFIG_STM32_FLASH_START_10000 && !CONFIG_STM32_FLASHFORGE_IFS
 static void
 flashforge_command_reset(void)
 {
@@ -63,7 +63,7 @@ flashforge_command_reset(void)
 void
 command_reset(uint32_t *args)
 {
-#if CONFIG_MACH_N32G455 && CONFIG_STM32_FLASH_START_10000
+#if CONFIG_MACH_N32G455 && CONFIG_STM32_FLASH_START_10000 && !CONFIG_STM32_FLASHFORGE_IFS
     // Bootloader bypass for Flashforge 5M(Pro) eboard MCU
     flashforge_command_reset();
 #else

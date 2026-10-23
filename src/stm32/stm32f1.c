@@ -377,6 +377,25 @@ flashforge_bootloader_request(void)
    NVIC_SystemReset();
 }
 
+// Reboot into serial bootloader of Flashforge AD5X IFS MCU
+static void
+flashforge_ifs_bootloader_request(void)
+{
+    // Erase the application flag page, as the stock "F37" command does
+    irq_disable();
+    FLASH->KEYR = FLASH_KEY1;
+    FLASH->KEYR = FLASH_KEY2;
+    FLASH->SR = FLASH_SR_EOP | FLASH_SR_PGERR | FLASH_SR_WRPRTERR;
+    FLASH->CR |= FLASH_CR_PER;
+    FLASH->AR = 0x0800D000;
+    FLASH->CR |= FLASH_CR_STRT;
+    while (FLASH->SR & FLASH_SR_BSY)
+        ;
+    FLASH->CR &= ~FLASH_CR_PER;
+    FLASH->CR |= FLASH_CR_LOCK;
+    NVIC_SystemReset();
+}
+
 // Handle reboot requests
 void
 bootloader_request(void)
@@ -386,6 +405,8 @@ bootloader_request(void)
         usb_hid_bootloader();
     else if (CONFIG_STM32_FLASH_START_2000)
         usb_stm32duino_bootloader();
+    else if (CONFIG_STM32_FLASHFORGE_IFS)
+        flashforge_ifs_bootloader_request();
     else if (CONFIG_MACH_N32G455 && CONFIG_STM32_FLASH_START_10000)
         flashforge_bootloader_request();
 }
