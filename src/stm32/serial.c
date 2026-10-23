@@ -8,6 +8,7 @@
 #include "board/armcm_boot.h" // armcm_enable_irq
 #include "board/serial_irq.h" // serial_rx_byte
 #include "command.h" // DECL_CONSTANT_STR
+#include "gpio.h" // gpio_out_setup
 #include "internal.h" // enable_pclock
 #include "sched.h" // DECL_INIT
 
@@ -73,6 +74,14 @@
 #define CR1_FLAGS (USART_CR1_UE | USART_CR1_RE | USART_CR1_TE   \
                    | USART_CR1_RXNEIE)
 
+#if CONFIG_STM32_FLASHFORGE_IFS
+  // Flashforge AD5X IFS: RS485 transceiver direction on PA11
+  // (low = transmit, high = receive)
+  DECL_CONSTANT_STR("RESERVE_PINS_rs485", "PA11");
+  #define GPIO_RS485_DIR GPIO('A', 11)
+  static struct gpio_out rs485_dir;
+#endif
+
 void
 USARTx_IRQHandler(void)
 {
@@ -86,15 +95,26 @@ USARTx_IRQHandler(void)
         uint8_t data;
         int ret = serial_get_tx_byte(&data);
         if (ret)
-            USARTx->CR1 = CR1_FLAGS;
+            // RS485: wait for the last byte to leave the shift register
+            USARTx->CR1 = CR1_FLAGS | (CONFIG_STM32_FLASHFORGE_IFS
+                                       ? USART_CR1_TCIE : 0);
         else
             USARTx->DR = data;
     }
+#if CONFIG_STM32_FLASHFORGE_IFS
+    if (sr & USART_SR_TC && USARTx->CR1 & USART_CR1_TCIE) {
+        USARTx->CR1 = CR1_FLAGS;
+        gpio_out_write(rs485_dir, 1);
+    }
+#endif
 }
 
 void
 serial_enable_tx_irq(void)
 {
+#if CONFIG_STM32_FLASHFORGE_IFS
+    gpio_out_write(rs485_dir, 0);
+#endif
     USARTx->CR1 = CR1_FLAGS | USART_CR1_TXEIE;
 }
 
@@ -112,5 +132,8 @@ serial_init(void)
 
     gpio_peripheral(GPIO_Rx, GPIO_FUNCTION(GPIO_AF_MODE), 1);
     gpio_peripheral(GPIO_Tx, GPIO_FUNCTION(GPIO_AF_MODE), 0);
+#if CONFIG_STM32_FLASHFORGE_IFS
+    rs485_dir = gpio_out_setup(GPIO_RS485_DIR, 1);
+#endif
 }
 DECL_INIT(serial_init);
