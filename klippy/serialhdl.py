@@ -129,6 +129,8 @@ class SerialReader:
             self.ffi_lib.serialqueue_set_receive_window(
                 self.serialqueue, receive_window
             )
+        if msgparser.get_constant_int("SERIAL_HALF_DUPLEX", 0):
+            self.ffi_lib.serialqueue_set_half_duplex(self.serialqueue, 1)
         return True
 
     def check_canbus_connect(

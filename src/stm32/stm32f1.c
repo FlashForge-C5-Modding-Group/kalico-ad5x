@@ -172,6 +172,18 @@ clock_setup_n32g45x(void)
     N32_PWR_CTRL3 |= 1;
     RCC->APB1ENR &= ~RCC_APB1ENR_PWREN;
 
+    // A bootloader may leave the PLL running, and the PLL config can't
+    // change while it is on - fall back to HSI and stop the PLL first
+    RCC->CR |= RCC_CR_HSION;
+    while (!(RCC->CR & RCC_CR_HSIRDY))
+        ;
+    RCC->CFGR = 0;
+    while ((RCC->CFGR & RCC_CFGR_SWS_Msk) != RCC_CFGR_SWS_HSI)
+        ;
+    RCC->CR &= ~(RCC_CR_PLLON | RCC_CR_CSSON | RCC_CR_HSEON);
+    while (RCC->CR & RCC_CR_PLLRDY)
+        ;
+
     // Configure and enable PLL
     uint32_t cfgr;
     if (!CONFIG_STM32_CLOCK_REF_INTERNAL) {

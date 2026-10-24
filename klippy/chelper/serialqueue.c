@@ -51,8 +51,8 @@ struct serialqueue {
     pthread_cond_t cond;
     int receive_waiting;
     // Baud / clock tracking
-    int receive_window;
-    double bittime_adjust, idle_time;
+    int receive_window, half_duplex;
+    double bittime_adjust, idle_time, last_input_time;
     struct clock_estimate ce;
     double last_receive_sent_time;
     // Retransmit support
@@ -95,6 +95,8 @@ struct serialqueue {
 #define MIN_REQTIME_DELTA 0.100
 #define MIN_BACKGROUND_DELTA 0.005
 #define IDLE_QUERY_TIME 1.0
+#define HALF_DUPLEX_GAP 0.002
+#define HALF_DUPLEX_TX_HOLD 0.004
 
 #define DEBUG_QUEUE_SENT 100
 #define DEBUG_QUEUE_RECEIVE 100
@@ -330,6 +332,11 @@ input_event(struct serialqueue *sq, double eventtime)
             return;
         }
         sq->input_pos += ret;
+        if (sq->half_duplex) {
+            pthread_mutex_lock(&sq->lock);
+            sq->last_input_time = eventtime;
+            pthread_mutex_unlock(&sq->lock);
+        }
     }
     for (;;) {
         int len = msgblock_check(&sq->need_sync, sq->input_buf, sq->input_pos);
@@ -402,10 +409,27 @@ do_write(struct serialqueue *sq, void *buf, int buflen)
 #endif
 }
 
+// Half-duplex: the mcu may only answer shortly after hearing us, so
+// leave it that window and wait for it to finish talking
+static double
+half_duplex_ready_time(struct serialqueue *sq)
+{
+    double rx = sq->last_input_time + HALF_DUPLEX_GAP;
+    double tx = sq->idle_time + HALF_DUPLEX_TX_HOLD;
+    return rx > tx ? rx : tx;
+}
+
 // Callback timer for when a retransmit should be done
 static double
 retransmit_event(struct serialqueue *sq, double eventtime)
 {
+    if (sq->half_duplex) {
+        pthread_mutex_lock(&sq->lock);
+        double ready = half_duplex_ready_time(sq);
+        pthread_mutex_unlock(&sq->lock);
+        if (eventtime < ready)
+            return ready;
+    }
     if (sq->serial_fd_type == SQT_UART) {
         int ret = tcflush(sq->serial_fd, TCOFLUSH);
         if (ret < 0)
@@ -522,6 +546,14 @@ build_and_send_command(struct serialqueue *sq, uint8_t *buf, int pending
 static double
 check_send_command(struct serialqueue *sq, int pending, double eventtime)
 {
+    if (sq->half_duplex) {
+        // One block in flight, sent once the mcu has stopped talking
+        if (sq->send_seq > sq->receive_seq && sq->receive_seq != (uint64_t)-1)
+            return PR_NEVER;
+        double ready = half_duplex_ready_time(sq);
+        if (eventtime < ready)
+            return ready;
+    }
     if (sq->send_seq - sq->receive_seq >= MAX_PENDING_BLOCKS
         && sq->receive_seq != (uint64_t)-1)
         // Need an ack before more messages can be sent
@@ -595,13 +627,14 @@ command_event(struct serialqueue *sq, double eventtime)
 {
     pthread_mutex_lock(&sq->lock);
     uint8_t buf[MESSAGE_MAX * MAX_PENDING_BLOCKS];
-    int buflen = 0;
+    int buflen = 0, wrote = 0;
     double waketime;
     for (;;) {
         waketime = check_send_command(sq, buflen, eventtime);
         if (waketime != PR_NOW || buflen + MESSAGE_MAX > sizeof(buf)) {
             if (buflen) {
                 // Write message blocks
+                wrote = 1;
                 do_write(sq, buf, buflen);
                 sq->bytes_write += buflen;
                 double idletime = (eventtime > sq->idle_time
@@ -613,6 +646,19 @@ command_event(struct serialqueue *sq, double eventtime)
                 break;
         }
         buflen += build_and_send_command(sq, &buf[buflen], buflen, eventtime);
+    }
+    if (sq->half_duplex && !wrote) {
+        // Nothing to send - poll so the mcu gets a turn to talk
+        double ready = half_duplex_ready_time(sq);
+        if (eventtime >= ready) {
+            uint8_t sync = MESSAGE_SYNC;
+            do_write(sq, &sync, 1);
+            sq->bytes_write += 1;
+            sq->idle_time = eventtime + calculate_bittime(sq, 1);
+            ready = half_duplex_ready_time(sq);
+        }
+        if (ready < waketime)
+            waketime = ready;
     }
     pthread_mutex_unlock(&sq->lock);
     return waketime;
@@ -909,6 +955,14 @@ serialqueue_set_receive_window(struct serialqueue *sq, int receive_window)
 {
     pthread_mutex_lock(&sq->lock);
     sq->receive_window = receive_window;
+    pthread_mutex_unlock(&sq->lock);
+}
+
+void __visible
+serialqueue_set_half_duplex(struct serialqueue *sq, int half_duplex)
+{
+    pthread_mutex_lock(&sq->lock);
+    sq->half_duplex = half_duplex;
     pthread_mutex_unlock(&sq->lock);
 }
 
