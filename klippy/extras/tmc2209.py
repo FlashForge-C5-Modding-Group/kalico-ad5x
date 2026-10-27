@@ -99,6 +99,11 @@ class TMC2209:
         set_config_field(config, "tpowerdown", 20)
         # SGTHRS
         set_config_field(config, "sgthrs", 0)
+        # Raw register values straight from the config
+        for name in ("vsense", "irun", "ihold", "shaft", "index_otpw", "tpwmthrs"):
+            value = config.getint("driver_" + name.upper(), None)
+            if value is not None:
+                self.fields.set_field(name, value)
 
 
 def load_config_prefix(config):
