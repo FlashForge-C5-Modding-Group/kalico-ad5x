@@ -122,6 +122,8 @@ class AFC_IFS(AFC_HTLF):
         self.ifs_gcode.register_command("ADX_PARK", self.cmd_ADX_PARK, desc="Move into the purge chute like stock")
         self.ifs_gcode.register_command("ADX_POOP", self.cmd_ADX_POOP, desc="Purge in the chute like stock")
         self.ifs_gcode.register_command("ADX_BRUSH", self.cmd_ADX_BRUSH, desc="Stock brush wipe, ends out of the chute")
+        self.ifs_gcode.register_command("ADX_RESUME_FLUSH", self.cmd_ADX_RESUME_FLUSH,
+                                        desc="Stock resume flush: 90 mm purge, then the Y brush passes")
         self.cut_approach_y     = config.getfloat("cut_approach_y", 10.)
         # stock cutFilament "F11 C<lane> L60" with "G1 E-60", then "F11 C<lane> L70 S1200"
         self.unload_cut_dist    = config.getfloat("unload_cut_dist", 60.)
@@ -535,6 +537,12 @@ class AFC_IFS(AFC_HTLF):
             return
         params =" ".join("%s=%s" % (k, v) for k, v in gcmd.get_command_parameters().items())
         self.ifs_gcode.run_script_from_command("AFC_POOP " + params)
+
+    # stock resume: flushFilamentSecond, then flushFilamentBrush(false)
+    def cmd_ADX_RESUME_FLUSH(self, gcmd):
+        lane = self.afc.function.get_current_lane_obj()
+        self._flush_second(self._material(lane) if lane is not None else "PLA")
+        self._brush_passes(False)
 
     def cmd_ADX_BRUSH(self, gcmd):
         cmds = ["SAVE_GCODE_STATE NAME=_ifs_brush", "G90",
