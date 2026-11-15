@@ -143,7 +143,7 @@ class AFC_IFS(AFC_HTLF):
                                         desc="Reset silk limits to stock: LANE=<1-4> or all")
         self.ifs_gcode.register_command("ADX_LOAD_HEAD", self.cmd_ADX_LOAD_HEAD,
                                         desc="Stock load wizard: heat, feed the lane to the head, purge: LANE=<1-4> TEMP=<C>")
-        self.ifs_gcode.register_command("ADX_CUT", self.cmd_ADX_CUT, desc="Stock approach to the cutter, then AFC_CUT")
+        self.ifs_gcode.register_command("ADX_CUT", self.cmd_ADX_CUT, desc="Stock approach to the cutter")
         self.ifs_gcode.register_command("ADX_END_UNLOAD", self.cmd_ADX_END_UNLOAD,
                                         desc="Unload the lane in the toolhead at the end of a print, if enabled")
         self.ifs_gcode.register_command("ADX_END_UNLOAD_SET", self.cmd_ADX_END_UNLOAD_SET,
