@@ -2,6 +2,7 @@
 #
 # Copyright (C) 2024-2026 Armored Turtle
 #
+# From https://github.com/AFCProject/AFC-Klipper-Add-On (commit 5ea84ea) for the OpenAD5X project
 from __future__ import annotations
 
 import json

@@ -8,6 +8,8 @@
 # Originally authored by Félix Boisselier and licensed under the GNU General Public License v3.0.
 #
 # Full license text available at: https://www.gnu.org/licenses/gpl-3.0.html
+#
+# From https://github.com/AFCProject/AFC-Klipper-Add-On (commit 5ea84ea) for the OpenAD5X project
 from __future__ import annotations
 
 import os

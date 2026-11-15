@@ -1,5 +1,9 @@
 # FlashForge AD5X analog filament sensor (toolhead), for AFC u1_filament_sensor_name
 #
+# Copyright (C) 2026  sterling motuz <Sterling@dexabyte.ca>
+#
+# Made for the OpenAD5X project
+#
 # This file may be distributed under the terms of the GNU GPLv3 license.
 
 SAMPLE_TIME  = 0.001

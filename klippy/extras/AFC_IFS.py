@@ -1,5 +1,9 @@
 # FlashForge AD5X IFS unit for Armored Turtle AFC
 #
+# Copyright (C) 2026  sterling motuz <Sterling@dexabyte.ca>
+#
+# Made for the OpenAD5X project
+#
 # This file may be distributed under the terms of the GNU GPLv3 license.
 from __future__ import annotations
 
@@ -103,6 +107,7 @@ class AFC_IFS(AFC_HTLF):
         self._options_load()
         self.auto_load_max     = config.getfloat("auto_load_max", 650.)
         self.park_dist          = config.getfloat("park_dist", 100.)
+        self.pause_load_dist    = config.getfloat("pause_load_dist", 200.)
         self.tool_sensor        = config.get("tool_sensor", "fill_sensor")
         # stock checkFeeding: feed until the toolhead sensor (30 s at 20 mm/s), back 5 mm, feed 500 mm
         self.load_feed          = config.getfloat("load_feed", 600.)
@@ -535,8 +540,9 @@ class AFC_IFS(AFC_HTLF):
                                     FLUSH_SPEED.get(material, 300.))
             self._gcode("M106 S%d" % AFTER_FAN.get(material, 125))
             return
-        params =" ".join("%s=%s" % (k, v) for k, v in gcmd.get_command_parameters().items())
-        self.ifs_gcode.run_script_from_command("AFC_POOP " + params)
+        # no IFS lane: stock flushFilamentSecond in the chute
+        cur = self.afc.function.get_current_lane_obj()
+        self._flush_second(self._material(cur) if cur is not None else "PLA")
 
     # stock resume: flushFilamentSecond, then flushFilamentBrush(false)
     def cmd_ADX_RESUME_FLUSH(self, gcmd):
@@ -715,9 +721,15 @@ class AFC_IFS(AFC_HTLF):
             self.afc.reactor.register_callback(lambda e, l=lane: self._auto_load(l))
 
     # stock fourInOneLoadFristStep and SecondStep: one feed of up to 650 mm to the toolhead sensor,
-    # then the lane back 100 mm, then release
+    # then the lane back 100 mm, then release. Only while not printing; a paused print gets
+    # checkPauseAutoLoad instead
     def _auto_load(self, lane):
-        if self.auto_load_busy or self.afc.function.is_printing(check_movement=True):
+        if self.auto_load_busy:
+            return
+        if self.afc.function.is_paused():
+            self._pause_load(lane)
+            return
+        if self.afc.function.in_print() or self.afc.function.is_printing(check_movement=True):
             return
         occupied = lane.get_toolhead_pre_sensor_state()
         self.auto_load_busy = True
@@ -732,6 +744,34 @@ class AFC_IFS(AFC_HTLF):
                 result = "toolhead sensor after {:.0f}mm".format(dist) if homed else "did not reach the toolhead sensor"
             lane.move(-self.park_dist, lane.long_moves_speed, lane.long_moves_accel)
             self.logger.info("{}: auto load {}, parked {:.0f}mm back".format(lane.name, result, self.park_dist))
+        finally:
+            self._release(self.drive_stepper_obj)
+            self.return_to_home()
+            self.auto_load_busy = False
+
+    # stock checkPauseAutoLoad: clearAllFilament (up to 8 clears in the chute until the toolhead sensor
+    # reads empty, then out to Y220), then the lane forward 200 mm at S1200
+    def _pause_load(self, lane):
+        self.auto_load_busy = True
+        try:
+            cur = self.afc.function.get_current_lane_obj()
+            material = self._material(cur) if cur is not None else "PLA"
+            for _ in range(8):
+                if not lane.get_toolhead_pre_sensor_state():
+                    break
+                self._chute_park()
+                self._flush_second(material)
+                self._brush_passes(False)
+            else:
+                self.logger.info("{}: pause load stopped, the toolhead still reads filament after 8 clears".format(lane.name))
+                return
+            self._gcode("SAVE_GCODE_STATE NAME=_adx_pause_load", "G90",
+                        "G1 Y%.3f F12000" % self.chute_y_out, "M400",
+                        "RESTORE_GCODE_STATE NAME=_adx_pause_load")
+            self._feed_started(lane)
+            lane.select_lane()
+            lane.move(self.pause_load_dist, lane.long_moves_speed, lane.long_moves_accel)
+            self.logger.info("{}: pause load fed {:.0f}mm".format(lane.name, self.pause_load_dist))
         finally:
             self._release(self.drive_stepper_obj)
             self.return_to_home()
