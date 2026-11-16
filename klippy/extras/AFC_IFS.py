@@ -242,8 +242,13 @@ class AFC_IFS(AFC_HTLF):
             except self.printer.command_error:
                 return
             if (value & 0xff) != 0xdc:
-                self._recover_drivers()
+                self._with_gcode_lock(self._recover_drivers)
                 return
+
+    # timer and sensor callbacks run G-code between commands, never inside one
+    def _with_gcode_lock(self, func, *args):
+        with self.ifs_gcode.get_mutex():
+            func(*args)
 
     def _recover_drivers(self):
         self.logger.info("IFS driver reset detected, re-initialising both drivers and re-homing")
@@ -369,7 +374,7 @@ class AFC_IFS(AFC_HTLF):
         if lane is None or not lane.load_state:
             raise gcmd.error("lane{} has no filament".format(idx))
         material = self._material(lane)
-        temp = gcmd.get_float("TEMP", STOCK_TEMP.get(material, 230.))
+        temp = gcmd.get_float("TEMP", STOCK_TEMP.get(material, 230.), above=0.)
         if not self.afc.function.is_homed():
             self._gcode("G28")
         self._gcode("M104 S%.0f" % temp)
@@ -704,7 +709,9 @@ class AFC_IFS(AFC_HTLF):
         gcmd.respond_info("lane{} limits set: {}".format(idx + 1, limits))
 
     def cmd_ADX_SILK_RESET(self, gcmd):
-        lane = gcmd.get("LANE", "all")
+        lane = gcmd.get("LANE", "all").lower()
+        if lane != "all" and lane not in [str(i + 1) for i in range(len(self.silk_limits))]:
+            raise gcmd.error("LANE must be 1-{} or all".format(len(self.silk_limits)))
         for i in range(len(self.silk_limits)):
             if lane == "all" or int(lane) == i + 1:
                 self.silk_limits[i] = dict(self.silk_default)
@@ -718,7 +725,7 @@ class AFC_IFS(AFC_HTLF):
     def on_filament_insert(self, lane):
         super().on_filament_insert(lane)
         if self.auto_load:
-            self.afc.reactor.register_callback(lambda e, l=lane: self._auto_load(l))
+            self.afc.reactor.register_callback(lambda e, l=lane: self._with_gcode_lock(self._auto_load, l))
 
     # stock fourInOneLoadFristStep and SecondStep: one feed of up to 650 mm to the toolhead sensor,
     # then the lane back 100 mm, then release. Only while not printing; a paused print gets
